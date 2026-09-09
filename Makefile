@@ -25,7 +25,7 @@ install:
 		"$(DESTDIR)/etc/argvus/firewall/rules.fw"
 	$(INSTALL) -Dm644 src/usr/lib/systemd/system/argvus-firewall.service \
 		"$(DESTDIR)$(PREFIX)/lib/systemd/system/argvus-firewall.service"
-	$(INSTALL) -Dm644 argvus-firewall.install \
+	$(INSTALL) -Dm644 packaging/arch/argvus-firewall.install \
 		"$(DESTDIR)$(PREFIX)/share/argvus/argvus-firewall.install"
 	$(INSTALL) -Dm644 LICENSE \
 		"$(DESTDIR)$(PREFIX)/share/licenses/argvus-firewall/LICENSE"
