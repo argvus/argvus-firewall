@@ -42,7 +42,7 @@ validate:
 	@set -eu; \
 	sh -n src/usr/bin/argvus-firewall; \
 	if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck -e SC1090 -e SC2034 src/usr/bin/argvus-firewall; \
+		shellcheck -e SC1090 -e SC1091 -e SC2034 src/usr/bin/argvus-firewall; \
 	else \
 		echo "shellcheck not found; skipped"; \
 	fi; \

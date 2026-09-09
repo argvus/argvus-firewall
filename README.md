@@ -39,6 +39,7 @@ All settings live in `/etc/argvus/firewall/config.conf`:
 | `ALLOW_SAMBA` | `n` | Samba access toggle |
 | `SAMBA_CLIENTS_IP` | `""` | Comma-separated Samba client IPs |
 | `ALLOW_ICMP` | `y` | ICMP/ping toggle |
+| `OPEN_PORTS_UDP` | `""` | Comma-separated UDP ports to open (e.g. `53,443`) |
 | `SYN_FLOOD_PROTECTION` | `y` | SYN flood protection toggle |
 | `DDOS_PROTECTION` | `y` | DDoS protection toggle |
 | `PORT_SCAN_PROTECTION` | `y` | Port scan protection toggle |

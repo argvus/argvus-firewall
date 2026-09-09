@@ -23,6 +23,7 @@ export PATH
 	IPTABLES="/usr/bin/iptables"
 	IPTABLES_SAVE="/usr/bin/iptables-save"
 	IP6TABLES="/usr/bin/ip6tables"
+	IP6TABLES_SAVE="/usr/bin/ip6tables-save"
 	SYSTEMCTL="/usr/bin/systemctl"
 	IPTABLES_RULES="/etc/iptables/iptables.rules"
 	IP6TABLES_RULES="/etc/iptables/ip6tables.rules"
@@ -30,7 +31,7 @@ export PATH
 	RULES_FILE="/etc/argvus/firewall/rules.fw"
 
 ### Load config
-	if [ -f $CONFIG_FILE ]; then
+	if [ -f "$CONFIG_FILE" ]; then
 		# shellcheck source=/etc/argvus/firewall/config.conf
 		. "$CONFIG_FILE"
 	else
@@ -55,9 +56,12 @@ export PATH
 	$MODPROBE ipt_LOG
 	$MODPROBE nf_conntrack_tftp
 
-### Clean rules and disable Iptables
+### Clean rules and disable firewall (opens both IPv4 and IPv6)
 _off() {
 	### IPv4
+	$IPTABLES -P INPUT ACCEPT
+	$IPTABLES -P OUTPUT ACCEPT
+	$IPTABLES -P FORWARD ACCEPT
 	$IPTABLES -F
 	$IPTABLES -X
 	$IPTABLES -t nat -F
@@ -68,20 +72,27 @@ _off() {
 	$IPTABLES -t raw -X
 	$IPTABLES -t security -F
 	$IPTABLES -t security -X
-	$IPTABLES -P INPUT ACCEPT
-	$IPTABLES -P OUTPUT ACCEPT
-	$IPTABLES -P FORWARD ACCEPT
 
-	### IPv6 (security: block everything by default)
-	$IP6TABLES -P INPUT DROP
-	$IP6TABLES -P OUTPUT DROP
-	$IP6TABLES -P FORWARD DROP
+	### IPv6
+	$IP6TABLES -P INPUT ACCEPT
+	$IP6TABLES -P OUTPUT ACCEPT
+	$IP6TABLES -P FORWARD ACCEPT
 	$IP6TABLES -F
 	$IP6TABLES -X
+	$IP6TABLES -t nat -F
+	$IP6TABLES -t nat -X
+	$IP6TABLES -t mangle -F
+	$IP6TABLES -t mangle -X
 }
 
 ### Advanced protection chains
 _create_protection_chains() {
+	### Ensure standard chains are absent before recreating (idempotent)
+	for _chain in SYN_FLOOD DDOS_PROTECT PORTSCAN BAD_PACKETS LOG_SUSPICIOUS LOG_DROPPED; do
+		$IPTABLES -F "$_chain" 2>/dev/null || true
+		$IPTABLES -X "$_chain" 2>/dev/null || true
+	done
+
 	### SYN Flood Protection
 	$IPTABLES -N SYN_FLOOD
 	$IPTABLES -A SYN_FLOOD -m limit --limit 10/s --limit-burst 20 -j RETURN
@@ -108,6 +119,16 @@ _create_protection_chains() {
 	$IPTABLES -A BAD_PACKETS -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
 	$IPTABLES -A BAD_PACKETS -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
 	$IPTABLES -A BAD_PACKETS -j RETURN
+
+	### Suspicious packets logging chain
+	$IPTABLES -N LOG_SUSPICIOUS
+	$IPTABLES -A LOG_SUSPICIOUS -m limit --limit 2/min -j LOG --log-prefix "Suspicious: " --log-level 4
+	$IPTABLES -A LOG_SUSPICIOUS -j DROP
+
+	### Final dropped packets logging chain
+	$IPTABLES -N LOG_DROPPED
+	$IPTABLES -A LOG_DROPPED -m limit --limit 5/min -j LOG --log-prefix "FW-Dropped: " --log-level 4
+	$IPTABLES -A LOG_DROPPED -j DROP
 }
 
 ### Start firewall
@@ -134,17 +155,22 @@ _on() {
 	### Check for bad packets
 	$IPTABLES -A INPUT -j BAD_PACKETS
 
-	### Anti-spoofing protection
-	if [ "$ANTI_SPOOFING" = "y" ]; then
-		$IPTABLES -A INPUT -s 10.0.0.0/8 -j DROP
-		$IPTABLES -A INPUT -s 172.16.0.0/12 -j DROP
-		# $IPTABLES -A INPUT -s 192.168.0.0/16 -j DROP
-		$IPTABLES -A INPUT -s 127.0.0.0/8 -j DROP
-		$IPTABLES -A INPUT -s 169.254.0.0/16 -j DROP
-		$IPTABLES -A INPUT -s 224.0.0.0/4 -j DROP
-		$IPTABLES -A INPUT -d 224.0.0.0/4 -j DROP
-		$IPTABLES -A INPUT -s 240.0.0.0/5 -j DROP
-		$IPTABLES -A INPUT -d 240.0.0.0/5 -j DROP
+	### Port scan detection
+	if [ "$PORT_SCAN_PROTECTION" = "y" ]; then
+		$IPTABLES -A INPUT -j PORTSCAN
+	fi
+
+	### Anti-spoofing protection (inbound on the WAN interface only)
+	if [ "$ANTI_SPOOFING" = "y" ] && [ -n "$INTERFACE_WAN" ]; then
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -s 10.0.0.0/8 -j DROP
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -s 172.16.0.0/12 -j DROP
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -s 192.168.0.0/16 -j DROP
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -s 127.0.0.0/8 -j DROP
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -s 169.254.0.0/16 -j DROP
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -s 224.0.0.0/4 -j DROP
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -d 224.0.0.0/4 -j DROP
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -s 240.0.0.0/5 -j DROP
+		$IPTABLES -A INPUT -i "$INTERFACE_WAN" -d 240.0.0.0/5 -j DROP
 	fi
 
 	### ICMP (ping) handling based on protection level
@@ -174,7 +200,7 @@ _on() {
 
 		# Brute force protection chain
 		$IPTABLES -A SSH_PROTECT -m recent --name ssh_attempt --set
-		$IPTABLES -A SSH_PROTECT -m recent --name ssh_attempt --update --seconds 60 --hitcount 4 -j SSH_DENIED
+		$IPTABLES -A SSH_PROTECT -m recent --name ssh_attempt --update --seconds 60 --hitcount 5 -j SSH_DENIED
 		$IPTABLES -A SSH_PROTECT -j SSH_ALLOWED
 
 		# Chain to allowed IPs
@@ -187,8 +213,9 @@ _on() {
 		# FIRST: Process each IP/range in the list (specific rules come first)
 		OLD_IFS="$IFS"
 		IFS=","
+		# shellcheck disable=SC2086
 		for ip in $SSH_CLIENTS_IP; do
-			ip_clean=$(echo "$ip" | tr -d ' ')
+			ip_clean=$(printf '%s' "$ip" | tr -d ' ')
 			if [ -n "$ip_clean" ]; then
 				echo "Allowing SSH from: $ip_clean"
 				$IPTABLES -A INPUT -p tcp --dport "${SSH_PORT}" -s "$ip_clean" -m conntrack --ctstate NEW -j SSH_PROTECT
@@ -222,78 +249,7 @@ _on() {
 		$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -j DDOS_PROTECT
 	fi
 
-	### Port Scan protection
-	if [ "$PORT_SCAN_PROTECTION" = "y" ]; then
-		$IPTABLES -A INPUT -m recent --name portscan --rcheck --seconds 3600 -j DROP
-		$IPTABLES -A INPUT -m recent --name portscan --remove
-	fi
-
-	### Rate limiting for new connections
-	$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -m limit --limit 60/s --limit-burst 20 -j ACCEPT
-	$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -j DROP
-
-	### Logging for suspicious activities
-	$IPTABLES -N LOG_SUSPICIOUS
-	$IPTABLES -A LOG_SUSPICIOUS -m limit --limit 2/min -j LOG --log-prefix "Suspicious: " --log-level 4
-	$IPTABLES -A LOG_SUSPICIOUS -j DROP
-
-	$IPTABLES -A INPUT -p tcp --tcp-flags ALL FIN,URG,PSH -j LOG_SUSPICIOUS
-	$IPTABLES -A INPUT -p tcp --tcp-flags ALL ALL -j LOG_SUSPICIOUS
-	$IPTABLES -A INPUT -p tcp --tcp-flags ALL NONE -j LOG_SUSPICIOUS
-
-	### Masquerade network with additional security
-	if [ "$MASQUERADE_ENABLE" = "y" ] && [ -n "$INTERFACE_WAN" ]; then
-		echo 1 > /proc/sys/net/ipv4/ip_forward
-		echo 1 > /proc/sys/net/ipv4/conf/all/forwarding
-
-		# Basic masquerade
-		$IPTABLES -t nat -A POSTROUTING -o "$INTERFACE_WAN" -j MASQUERADE
-
-		# Secure forwarding rules
-		if [ -n "$INTERFACE_LAN" ]; then
-			$IPTABLES -A FORWARD -i "$INTERFACE_LAN" -o "$INTERFACE_WAN" -j ACCEPT
-			$IPTABLES -A FORWARD -i "$INTERFACE_WAN" -o "$INTERFACE_LAN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-			$IPTABLES -A FORWARD -i "$INTERFACE_WAN" -o "$INTERFACE_LAN" -j DROP
-		fi
-	fi
-
-	### Application layer protections
-	$IPTABLES -A INPUT -p tcp --dport 80 -m limit --limit 25/minute --limit-burst 100 -j ACCEPT
-	$IPTABLES -A INPUT -p tcp --dport 443 -m limit --limit 25/minute --limit-burst 100 -j ACCEPT
-
-	### Final reject rules with logging
-	$IPTABLES -A INPUT -p udp -j REJECT --reject-with icmp-port-unreachable
-	$IPTABLES -A INPUT -p tcp -j REJECT --reject-with tcp-reset
-	$IPTABLES -A INPUT -j REJECT --reject-with icmp-proto-unreachable
-
-	### Comprehensive logging
-	$IPTABLES -N LOG_DROPPED
-	$IPTABLES -A LOG_DROPPED -m limit --limit 5/min -j LOG --log-prefix "FW-Dropped: " --log-level 4
-	$IPTABLES -A LOG_DROPPED -j DROP
-
-	$IPTABLES -A INPUT -j LOG_DROPPED
-
-	### IPv6 security (block everything except essential)
-	$IP6TABLES -P INPUT DROP
-	$IP6TABLES -P FORWARD DROP
-	$IP6TABLES -P OUTPUT DROP
-
-	$IP6TABLES -A INPUT -i lo -j ACCEPT
-	$IP6TABLES -A OUTPUT -o lo -j ACCEPT
-	$IP6TABLES -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-	$IP6TABLES -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-
-	### Enable hardening sysctl parameters
-	echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
-	echo 1 > /proc/sys/net/ipv4/icmp_ignore_bogus_error_responses
-	echo 1 > /proc/sys/net/ipv4/conf/all/rp_filter
-	echo 1 > /proc/sys/net/ipv4/conf/default/rp_filter
-	echo 0 > /proc/sys/net/ipv4/conf/all/accept_redirects
-	echo 0 > /proc/sys/net/ipv4/conf/default/accept_redirects
-	echo 0 > /proc/sys/net/ipv4/conf/all/accept_source_route
-	echo 0 > /proc/sys/net/ipv4/conf/default/accept_source_route
-
-	### Samba rules
+	### Samba access control
 	if [ "$ALLOW_SAMBA" = "y" ] && [ -n "$SAMBA_CLIENTS_IP" ]; then
 		echo "Samba access enabled for specific IPs"
 
@@ -315,8 +271,9 @@ _on() {
 		# Allows specific IPs
 		OLD_IFS="$IFS"
 		IFS=","
+		# shellcheck disable=SC2086
 		for ip in $SAMBA_CLIENTS_IP; do
-			ip_clean=$(echo "$ip" | tr -d ' ')
+			ip_clean=$(printf '%s' "$ip" | tr -d ' ')
 			if [ -n "$ip_clean" ]; then
 				echo "Allowing Samba from: $ip_clean"
 				$IPTABLES -A INPUT -p udp --dport 137 -s "$ip_clean" -m conntrack --ctstate NEW -j SAMBA_PROTECT
@@ -337,54 +294,134 @@ _on() {
 		$IPTABLES -A INPUT -p tcp --dport 445 -m conntrack --ctstate NEW -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
 		$IPTABLES -A INPUT -p tcp --dport 445 -m conntrack --ctstate NEW -j DROP
 
-    elif [ "$ALLOW_SAMBA" = "y" ]; then
-            echo "Samba access enabled for all IPs"
-            # Allow all IPs
-            $IPTABLES -A INPUT -p udp --dport 137 -m conntrack --ctstate NEW -j ACCEPT
-            $IPTABLES -A INPUT -p udp --dport 138 -m conntrack --ctstate NEW -j ACCEPT
-            $IPTABLES -A INPUT -p tcp --dport 139 -m conntrack --ctstate NEW -j ACCEPT
-            $IPTABLES -A INPUT -p tcp --dport 445 -m conntrack --ctstate NEW -j ACCEPT
-    else
-        echo "Samba access completely disabled"
-        # Block all Samba access
-		$IPTABLES -I INPUT -p tcp --dport 137 -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
-		$IPTABLES -I INPUT -p tcp --dport 137 -j DROP
-		$IPTABLES -I INPUT -p tcp --dport 138 -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
-		$IPTABLES -I INPUT -p tcp --dport 138 -j DROP
-		$IPTABLES -I INPUT -p tcp --dport 139 -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
-		$IPTABLES -I INPUT -p tcp --dport 139 -j DROP
-		$IPTABLES -I INPUT -p tcp --dport 445 -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
-		$IPTABLES -I INPUT -p tcp --dport 445 -j DROP
-    fi
+	elif [ "$ALLOW_SAMBA" = "y" ]; then
+		echo "Samba access enabled for all IPs"
+		# Allow all IPs
+		$IPTABLES -A INPUT -p udp --dport 137 -m conntrack --ctstate NEW -j ACCEPT
+		$IPTABLES -A INPUT -p udp --dport 138 -m conntrack --ctstate NEW -j ACCEPT
+		$IPTABLES -A INPUT -p tcp --dport 139 -m conntrack --ctstate NEW -j ACCEPT
+		$IPTABLES -A INPUT -p tcp --dport 445 -m conntrack --ctstate NEW -j ACCEPT
+	else
+		echo "Samba access completely disabled"
+		# Block all Samba access
+		$IPTABLES -A INPUT -p tcp --dport 137 -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
+		$IPTABLES -A INPUT -p tcp --dport 137 -j DROP
+		$IPTABLES -A INPUT -p tcp --dport 138 -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
+		$IPTABLES -A INPUT -p tcp --dport 138 -j DROP
+		$IPTABLES -A INPUT -p tcp --dport 139 -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
+		$IPTABLES -A INPUT -p tcp --dport 139 -j DROP
+		$IPTABLES -A INPUT -p tcp --dport 445 -j LOG --log-prefix "SAMBA-Denied-IP: " --log-level 4
+		$IPTABLES -A INPUT -p tcp --dport 445 -j DROP
+	fi
 
-    ### Begin: Loader rules
-	if [ -f $RULES_FILE ]; then
+	### Application layer protections
+	$IPTABLES -A INPUT -p tcp --dport 80 -m conntrack --ctstate NEW -m limit --limit 25/minute --limit-burst 100 -j ACCEPT
+	$IPTABLES -A INPUT -p tcp --dport 443 -m conntrack --ctstate NEW -m limit --limit 25/minute --limit-burst 100 -j ACCEPT
+
+	### Optional UDP ports
+	if [ -n "$OPEN_PORTS_UDP" ]; then
+		OLD_IFS="$IFS"
+		IFS=","
+		# shellcheck disable=SC2086
+		for port in $OPEN_PORTS_UDP; do
+			port_clean=$(printf '%s' "$port" | tr -d ' ')
+			if [ -n "$port_clean" ]; then
+				echo "Opening UDP port: $port_clean"
+				$IPTABLES -A INPUT -p udp --dport "$port_clean" -m conntrack --ctstate NEW -j ACCEPT
+			fi
+		done
+		IFS="$OLD_IFS"
+	fi
+
+	### General new connection rate limiting (catch-all)
+	$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -m limit --limit 60/s --limit-burst 20 -j ACCEPT
+	$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -j LOG --log-prefix "TCP-New-Dropped: " --log-level 4
+	$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -j DROP
+
+	### Logging for suspicious activities
+	$IPTABLES -A INPUT -p tcp --tcp-flags ALL FIN,URG,PSH -j LOG_SUSPICIOUS
+	$IPTABLES -A INPUT -p tcp --tcp-flags ALL ALL -j LOG_SUSPICIOUS
+	$IPTABLES -A INPUT -p tcp --tcp-flags ALL NONE -j LOG_SUSPICIOUS
+
+	### Masquerade network with additional security
+	if [ "$MASQUERADE_ENABLE" = "y" ] && [ -n "$INTERFACE_WAN" ]; then
+		echo 1 > /proc/sys/net/ipv4/ip_forward
+		echo 1 > /proc/sys/net/ipv4/conf/all/forwarding
+
+		# Basic masquerade
+		$IPTABLES -t nat -A POSTROUTING -o "$INTERFACE_WAN" -j MASQUERADE
+
+		# Secure forwarding rules
+		if [ -n "$INTERFACE_LAN" ]; then
+			$IPTABLES -A FORWARD -i "$INTERFACE_LAN" -o "$INTERFACE_WAN" -j ACCEPT
+			$IPTABLES -A FORWARD -i "$INTERFACE_WAN" -o "$INTERFACE_LAN" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+			$IPTABLES -A FORWARD -i "$INTERFACE_WAN" -o "$INTERFACE_LAN" -j DROP
+		fi
+	fi
+
+	### Enable hardening sysctl parameters
+	echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
+	echo 1 > /proc/sys/net/ipv4/icmp_ignore_bogus_error_responses
+	echo 1 > /proc/sys/net/ipv4/conf/all/rp_filter
+	echo 1 > /proc/sys/net/ipv4/conf/default/rp_filter
+	echo 0 > /proc/sys/net/ipv4/conf/all/accept_redirects
+	echo 0 > /proc/sys/net/ipv4/conf/default/accept_redirects
+	echo 0 > /proc/sys/net/ipv4/conf/all/accept_source_route
+	echo 0 > /proc/sys/net/ipv4/conf/default/accept_source_route
+
+	### IPv6 security (block inbound, allow outbound, keep essential ICMPv6)
+	$IP6TABLES -P INPUT DROP
+	$IP6TABLES -P FORWARD DROP
+	$IP6TABLES -P OUTPUT ACCEPT
+
+	$IP6TABLES -A INPUT -i lo -j ACCEPT
+	$IP6TABLES -A OUTPUT -o lo -j ACCEPT
+
+	$IP6TABLES -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+	$IP6TABLES -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+	### Essential ICMPv6 (NDP, error reports, echo)
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type destination-unreachable -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type packet-too-big -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type time-exceeded -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type parameter-problem -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type echo-request -m limit --limit 1/s -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type echo-reply -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type router-advertisement -m hl --hl-eq 255 -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type neighbor-solicitation -m hl --hl-eq 255 -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type neighbor-advertisement -m hl --hl-eq 255 -j ACCEPT
+	$IP6TABLES -A INPUT -p ipv6-icmp --icmpv6-type redirect -m hl --hl-eq 255 -j ACCEPT
+
+	### Loader rules (extension point, applied before the final drop)
+	if [ -f "$RULES_FILE" ]; then
 		# shellcheck source=/etc/argvus/firewall/rules.fw
 		. "$RULES_FILE"
 	else
 		echo "File \"$RULES_FILE\" not found. Using defaults."
 	fi
-	### End: Loader rules
+
+	### Final drop with logging
+	$IPTABLES -A INPUT -j LOG_DROPPED
 }
 
 _check_config() {
-	### Verify INTERFACE_WAN is empty
-	if [ -z "$INTERFACE_WAN" ]; then
-		echo "INTERFACE_WAN is empty. Edit the file \"$CONFIG_FILE\". Aborted!"
+	### INTERFACE_WAN is only required when masquerading is enabled
+	if [ "$MASQUERADE_ENABLE" = "y" ] && [ -z "$INTERFACE_WAN" ]; then
+		echo "MASQUERADE_ENABLE=y but INTERFACE_WAN is empty. Edit the file \"$CONFIG_FILE\". Aborted!"
 		exit 1
 	fi
 }
 
 _save() {
-	$IPTABLES_SAVE > $IPTABLES_RULES
-	$IP6TABLES -S > $IP6TABLES_RULES 2>/dev/null || true
+	$IPTABLES_SAVE > "$IPTABLES_RULES"
+	$IP6TABLES_SAVE > "$IP6TABLES_RULES" 2>/dev/null || true
 	$SYSTEMCTL restart iptables.service 2>/dev/null || true
+	$SYSTEMCTL restart ip6tables.service 2>/dev/null || true
 }
 
 ### Options
 case $1 in
 	off)
-		_check_config
 		_off
 		_save
 		echo "Firewall disabled"
@@ -398,16 +435,24 @@ case $1 in
 		echo "Firewall enabled with $PROTECTION_LEVEL protection"
 		echo "Note: Basic configuration file is at \"$CONFIG_FILE\"."
 		;;
-    config)
-        sudo nano $CONFIG_FILE
+	config)
+		_check_config
+		_editor="${EDITOR:-${VISUAL:-nano}}"
+		"$_editor" "$CONFIG_FILE"
 		_off
 		_on
-    ;;
-    rules)
-        sudo nano $RULES_FILE
+		_save
+		echo "Configuration reloaded"
+		;;
+	rules)
+		_check_config
+		_editor="${EDITOR:-${VISUAL:-nano}}"
+		"$_editor" "$RULES_FILE"
 		_off
 		_on
-    ;;
+		_save
+		echo "Custom rules reloaded"
+		;;
 	status)
 		echo "=== IPv4 Rules ==="
 		$IPTABLES -L -n -v
