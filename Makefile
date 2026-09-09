@@ -17,6 +17,8 @@ help:
 	@echo "  make clean"
 
 install:
+	$(INSTALL) -Dm644 src/usr/lib/argvus-firewall/manage.py \
+		"$(DESTDIR)$(PREFIX)/lib/argvus-firewall/manage.py"
 	$(INSTALL) -Dm755 src/usr/bin/argvus-firewall \
 		"$(DESTDIR)$(PREFIX)/bin/argvus-firewall"
 	$(INSTALL) -Dm644 src/etc/argvus/firewall/config.conf \
@@ -32,6 +34,7 @@ install:
 	$(INSTALL) -dm755 "$(DESTDIR)/var/log/argvus-firewall"
 
 uninstall:
+	$(RM) "$(DESTDIR)$(PREFIX)/lib/argvus-firewall/manage.py"
 	$(RM) "$(DESTDIR)$(PREFIX)/bin/argvus-firewall"
 	$(RM) -r "$(DESTDIR)/etc/argvus/firewall"
 	$(RM) "$(DESTDIR)$(PREFIX)/lib/systemd/system/argvus-firewall.service"
@@ -39,6 +42,7 @@ uninstall:
 	$(RM) "$(DESTDIR)$(PREFIX)/share/licenses/argvus-firewall/LICENSE"
 
 validate:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
 	@set -eu; \
 	sh -n src/usr/bin/argvus-firewall; \
 	if command -v shellcheck >/dev/null 2>&1; then \

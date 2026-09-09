@@ -16,6 +16,10 @@
 PATH="/sbin:/usr/sbin:/bin:/usr/bin:${PATH}"
 export PATH
 
+if [ "${1:-}" = manage ] && [ "$#" -eq 1 ]; then
+	exec /usr/bin/python3 -I /usr/lib/argvus-firewall/manage.py
+fi
+
 [ "$(id -u)" -gt 0 ] && { printf "This script runs only with root user.\n"; exit 1; }
 
 ### Variables global
@@ -127,6 +131,7 @@ _create_protection_chains() {
 
 	### Final dropped packets logging chain
 	$IPTABLES -N LOG_DROPPED
+	$IPTABLES -A LOG_DROPPED -m recent --name portscan --set
 	$IPTABLES -A LOG_DROPPED -m limit --limit 5/min -j LOG --log-prefix "FW-Dropped: " --log-level 4
 	$IPTABLES -A LOG_DROPPED -j DROP
 }
@@ -157,7 +162,7 @@ _on() {
 
 	### Port scan detection
 	if [ "$PORT_SCAN_PROTECTION" = "y" ]; then
-		$IPTABLES -A INPUT -j PORTSCAN
+		$IPTABLES -A INPUT -m recent --name portscan --rcheck --seconds 60 --hitcount 10 -j PORTSCAN
 	fi
 
 	### Anti-spoofing protection (inbound on the WAN interface only)
@@ -333,11 +338,6 @@ _on() {
 		IFS="$OLD_IFS"
 	fi
 
-	### General new connection rate limiting (catch-all)
-	$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -m limit --limit 60/s --limit-burst 20 -j ACCEPT
-	$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -j LOG --log-prefix "TCP-New-Dropped: " --log-level 4
-	$IPTABLES -A INPUT -p tcp -m conntrack --ctstate NEW -j DROP
-
 	### Logging for suspicious activities
 	$IPTABLES -A INPUT -p tcp --tcp-flags ALL FIN,URG,PSH -j LOG_SUSPICIOUS
 	$IPTABLES -A INPUT -p tcp --tcp-flags ALL ALL -j LOG_SUSPICIOUS
@@ -405,52 +405,70 @@ _on() {
 }
 
 _check_config() {
-	### INTERFACE_WAN is only required when masquerading is enabled
-	if [ "$MASQUERADE_ENABLE" = "y" ] && [ -z "$INTERFACE_WAN" ]; then
-		echo "MASQUERADE_ENABLE=y but INTERFACE_WAN is empty. Edit the file \"$CONFIG_FILE\". Aborted!"
-		exit 1
-	fi
+	/usr/bin/python3 -I /usr/lib/argvus-firewall/manage.py --check-files || exit 1
 }
 
 _save() {
 	$IPTABLES_SAVE > "$IPTABLES_RULES"
-	$IP6TABLES_SAVE > "$IP6TABLES_RULES" 2>/dev/null || true
-	$SYSTEMCTL restart iptables.service 2>/dev/null || true
-	$SYSTEMCTL restart ip6tables.service 2>/dev/null || true
+	$IP6TABLES_SAVE > "$IP6TABLES_RULES"
 }
+
+# Called by the EXIT trap inside _apply.
+# shellcheck disable=SC2329
+_rollback() {
+	_result=$1
+	if [ "$_result" -ne 0 ]; then
+		/usr/bin/iptables-restore < "$_snapshot/ipv4" || echo "IPv4 rollback failed" >&2
+		/usr/bin/ip6tables-restore < "$_snapshot/ipv6" || echo "IPv6 rollback failed" >&2
+	fi
+	rm -rf "$_snapshot"
+	exit "$_result"
+}
+
+_apply() (
+	set -e
+	if [ "${1:-on}" = on ]; then _check_config; fi
+	_snapshot=$(mktemp -d /run/argvus-firewall.XXXXXX)
+	trap 'rm -rf "$_snapshot"' 0
+	$IPTABLES_SAVE > "$_snapshot/ipv4"
+	$IP6TABLES_SAVE > "$_snapshot/ipv6"
+	# Restore the previous packet filters if any rule fails to apply.
+	trap '_rollback $?' 0
+	trap 'exit 1' 1 2 15
+	_off
+	if [ "${1:-on}" = on ]; then _on; fi
+	_save
+)
 
 ### Options
 case $1 in
 	off)
-		_off
-		_save
+		set -e
+		_apply off
 		echo "Firewall disabled"
 		echo "Note: Basic configuration file is at \"$CONFIG_FILE\"."
 		;;
 	on)
-		_check_config
-		_off
-		_on
-		_save
+		set -e
+		_apply
 		echo "Firewall enabled with $PROTECTION_LEVEL protection"
 		echo "Note: Basic configuration file is at \"$CONFIG_FILE\"."
 		;;
 	config)
-		_check_config
 		_editor="${EDITOR:-${VISUAL:-nano}}"
 		"$_editor" "$CONFIG_FILE"
-		_off
-		_on
-		_save
+		_check_config
+		. "$CONFIG_FILE"
+		set -e
+		_apply
 		echo "Configuration reloaded"
 		;;
 	rules)
-		_check_config
 		_editor="${EDITOR:-${VISUAL:-nano}}"
 		"$_editor" "$RULES_FILE"
-		_off
-		_on
-		_save
+		_check_config
+		set -e
+		_apply
 		echo "Custom rules reloaded"
 		;;
 	status)
