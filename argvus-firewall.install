@@ -1,0 +1,54 @@
+#!/usr/bin/env sh
+
+_log_dir="/var/log/argvus-firewall"
+_log_file="$_log_dir/installation.log"
+
+_log() {
+  echo "$(date): $1" >> "$_log_file"
+}
+
+msg_header() {
+  printf "\e[0;36m→ %s\e[0m\n" "$1"
+  _log "$1"
+}
+
+msg_finish() {
+  printf "\e[0;32m✔ %s\e[0m\n" "$1"
+  _log "$1"
+}
+
+msg_warning() {
+  printf "\e[0;33m⚠ %s\e[0m\n" "$1"
+  _log "WARNING: $1"
+}
+
+post_install() {
+  mkdir -p "$_log_dir"
+  _log "Package installed successfully"
+
+  msg_header ":: argvus Firewall installed"
+  msg_warning "Edit /etc/argvus/firewall/config.conf before enabling the service"
+  msg_warning "Then run: systemctl enable --now argvus-firewall"
+}
+
+post_upgrade() {
+  mkdir -p "$_log_dir"
+  _log "Package upgraded successfully"
+
+  msg_header ":: argvus Firewall upgraded"
+  msg_warning "Review /etc/argvus/firewall/config.conf for any new options"
+  systemctl daemon-reload 2>/dev/null || true
+}
+
+post_remove() {
+  msg_header ":: Removing argvus-firewall..."
+
+  systemctl disable --now argvus-firewall 2>/dev/null || true
+  systemctl daemon-reload 2>/dev/null || true
+
+  rm -rf "$_log_dir"
+
+  msg_warning "Configuration folder /etc/argvus/firewall/ is preserved"
+  msg_warning "Remove manually if desired: rm -rf /etc/argvus/firewall/"
+  msg_finish ":: Package removed successfully"
+}

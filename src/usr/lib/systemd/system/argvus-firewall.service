@@ -1,0 +1,14 @@
+[Unit]
+Description=ARGVUS Firewall
+After=network.target
+After=syslog.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/argvus-firewall on
+ExecReload=/usr/bin/argvus-firewall on
+ExecStop=/usr/bin/argvus-firewall off
+
+[Install]
+WantedBy=multi-user.target
