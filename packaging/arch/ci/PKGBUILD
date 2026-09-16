@@ -15,9 +15,20 @@ backup=(
 )
 options=('!debug')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=()
+
+# shellcheck disable=SC1091
+_functions_file="${startdir:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)}/../common/functions.sh"
+. "$_functions_file"
+
+prepare() {
+  arch_normalize_source_tree
+}
+
+check() {
+  arch_check_firewall_payload
+}
 
 package() {
-  cd "${srcdir}/${pkgname}-${pkgver}"
-  make DESTDIR="${pkgdir}" PREFIX=/usr install
+  arch_package_firewall_payload
 }
