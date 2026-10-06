@@ -22,7 +22,8 @@ class ConfigTests(unittest.TestCase):
         for key, value in [('SSH_PORT', '22;id'), ('SSH_PORT', '0'), ('SSH_PORT', '65536'),
                            ('INTERFACE_WAN', '$(id)'), ('ALLOW_SSH', 'true'),
                            ('SSH_CLIENTS_IP', '::1'), ('SAMBA_CLIENTS_IP', '1.2.3.4\n'),
-                           ('OPEN_PORTS_UDP', '53,bad'), ('PROTECTION_LEVEL', 'unknown')]:
+                           ('OPEN_PORTS_UDP', '53,bad'), ('OPEN_PORTS_TCP', '3000,0'),
+                           ('OPEN_PORTS_TCP', '8080;id'), ('PROTECTION_LEVEL', 'unknown')]:
             with self.subTest(key=key, value=value):
                 with self.assertRaises(ValueError):
                     manage.validate(dict(manage.DEFAULTS, **{key: value}))
@@ -33,7 +34,8 @@ class ConfigTests(unittest.TestCase):
         manage.validate(dict(manage.DEFAULTS, MASQUERADE_ENABLE='y', INTERFACE_WAN='eth0'))
 
     def test_networks_and_ports(self):
-        manage.validate(dict(manage.DEFAULTS, SSH_CLIENTS_IP='192.168.1.0/24,10.0.0.2', OPEN_PORTS_UDP='53,443'))
+        manage.validate(dict(manage.DEFAULTS, SSH_CLIENTS_IP='192.168.1.0/24,10.0.0.2', OPEN_PORTS_UDP='53,443',
+                             OPEN_PORTS_TCP='3000,8080'))
 
     def test_rejects_unknown_fields_and_shell_statements(self):
         for contents in ['exec id', 'UNKNOWN="x"', 'ALLOW_SSH="y"; id', 'SSH_PORT="$(id)"']:

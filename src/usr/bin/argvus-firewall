@@ -339,6 +339,21 @@ _on() {
 		IFS="$OLD_IFS"
 	fi
 
+	### Optional TCP ports
+	if [ -n "$OPEN_PORTS_TCP" ]; then
+		OLD_IFS="$IFS"
+		IFS=","
+		# shellcheck disable=SC2086
+		for port in $OPEN_PORTS_TCP; do
+			port_clean=$(printf '%s' "$port" | tr -d ' ')
+			if [ -n "$port_clean" ]; then
+				echo "Opening TCP port: $port_clean"
+				$IPTABLES -A INPUT -p tcp --dport "$port_clean" -m conntrack --ctstate NEW -j ACCEPT
+			fi
+		done
+		IFS="$OLD_IFS"
+	fi
+
 	### Logging for suspicious activities
 	$IPTABLES -A INPUT -p tcp --tcp-flags ALL FIN,URG,PSH -j LOG_SUSPICIOUS
 	$IPTABLES -A INPUT -p tcp --tcp-flags ALL ALL -j LOG_SUSPICIOUS

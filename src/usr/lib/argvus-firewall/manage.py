@@ -17,7 +17,7 @@ DEFAULTS = {
     'INTERFACE_WAN': '', 'INTERFACE_LAN': '', 'MASQUERADE_ENABLE': 'n',
     'PROTECTION_LEVEL': 'high', 'ALLOW_SSH': 'n', 'SSH_CLIENTS_IP': '',
     'SSH_PORT': '22', 'ALLOW_SAMBA': 'n', 'SAMBA_CLIENTS_IP': '',
-    'ALLOW_ICMP': 'y', 'OPEN_PORTS_UDP': '', 'SYN_FLOOD_PROTECTION': 'y',
+    'ALLOW_ICMP': 'y', 'OPEN_PORTS_UDP': '', 'OPEN_PORTS_TCP': '', 'SYN_FLOOD_PROTECTION': 'y',
     'DDOS_PROTECTION': 'y', 'PORT_SCAN_PROTECTION': 'y', 'ANTI_SPOOFING': 'y',
 }
 BOOLS = {key for key, value in DEFAULTS.items() if value in ('y', 'n')}
@@ -37,10 +37,10 @@ def validate(values):
             for network in value.split(','):
                 if ipaddress.ip_network(network.strip(), strict=False).version != 4:
                     raise ValueError(f'{key}: only IPv4 networks are supported')
-        if key in ('SSH_PORT', 'OPEN_PORTS_UDP'):
-            ports = value.split(',') if key == 'OPEN_PORTS_UDP' and value else [value]
+        if key in ('SSH_PORT', 'OPEN_PORTS_UDP', 'OPEN_PORTS_TCP'):
+            ports = value.split(',') if key.startswith('OPEN_PORTS_') and value else [value]
             for port in ports:
-                if key == 'OPEN_PORTS_UDP' and not value:
+                if key.startswith('OPEN_PORTS_') and not value:
                     continue
                 if not port.strip().isascii() or not port.strip().isdigit() or not 1 <= int(port) <= 65535:
                     raise ValueError(f'{key}: expected ports between 1 and 65535')
