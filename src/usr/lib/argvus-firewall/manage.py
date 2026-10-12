@@ -114,7 +114,7 @@ def handle(request):
                 'active': subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', 'argvus-firewall.service'], check=False).returncode == 0,
                 'enabled': subprocess.run(['/usr/bin/systemctl', 'is-enabled', '--quiet', 'argvus-firewall.service'], check=False).returncode == 0}
     if os.geteuid() != 0:
-        raise PermissionError('administration requires pkexec argvus-firewall manage')
+        raise PermissionError('administration requires pkexec /usr/lib/argvus/commands/argvus-firewall manage')
     with open('/run/lock/argvus-firewall-config.lock', 'a', encoding='utf-8') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if action in ('save-config', 'save-rules'):

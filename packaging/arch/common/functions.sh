@@ -39,7 +39,7 @@ arch_package_firewall_payload() {
 	local source_root="${srcdir}/${pkgname}-${pkgver}"
 
 	install -Dm755 "${source_root}/src/usr/bin/argvus-firewall" \
-		"${pkgdir}/usr/bin/argvus-firewall"
+		"${pkgdir}/usr/lib/argvus/commands/argvus-firewall"
 	install -Dm644 "${source_root}/src/usr/lib/argvus-firewall/manage.py" \
 		"${pkgdir}/usr/lib/argvus-firewall/manage.py"
 	install -Dm644 "${source_root}/src/etc/argvus/firewall/config.conf" \

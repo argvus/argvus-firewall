@@ -19,11 +19,11 @@ updates.
 The installed configuration is `/etc/argvus/firewall/config.conf`.
 
 ```sh
-sudo argvus-firewall on
-sudo argvus-firewall off
-sudo argvus-firewall status
-sudo argvus-firewall config
-sudo argvus-firewall rules
+sudo argvus firewall on
+sudo argvus firewall off
+sudo argvus firewall status
+sudo argvus firewall config
+sudo argvus firewall rules
 sudo systemctl enable --now argvus-firewall
 ```
 
