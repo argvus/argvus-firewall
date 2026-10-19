@@ -24,6 +24,7 @@ sudo argvus firewall off
 sudo argvus firewall status
 sudo argvus firewall config
 sudo argvus firewall rules
+sudo argvus firewall manage        # structured interface (see the documentation)
 sudo systemctl enable --now argvus-firewall
 ```
 
