@@ -6,9 +6,9 @@ After=syslog.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/lib/argvus/commands/argvus-firewall on
-ExecReload=/usr/lib/argvus/commands/argvus-firewall on
-ExecStop=/usr/lib/argvus/commands/argvus-firewall off
+ExecStart=/usr/lib/argvus/commands/firewall on
+ExecReload=/usr/lib/argvus/commands/firewall on
+ExecStop=/usr/lib/argvus/commands/firewall off
 
 [Install]
 WantedBy=multi-user.target
