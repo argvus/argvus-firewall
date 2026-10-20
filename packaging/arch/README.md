@@ -5,7 +5,7 @@ This project keeps separate PKGBUILDs for local and tagged release builds:
 | Path | Use | Source |
 | --- | --- | --- |
 | `local/PKGBUILD` | `make build` from the working tree | generated local archive |
-| `ci/PKGBUILD` | tagged release | GitHub tag archive |
+| `remote/PKGBUILD` | tagged release | GitHub tag archive |
 
 The package metadata and payload checks are equivalent. Only the source
 definition and checksum handling differ. Shared source normalization and
