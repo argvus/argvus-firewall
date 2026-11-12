@@ -1,5 +1,5 @@
 ---
-title: Firewall
+title: फ़ायरवॉल
 description: ARGVUS फ़ायरवॉल सेवा का निरीक्षण और नियंत्रण करें।
 ---
 

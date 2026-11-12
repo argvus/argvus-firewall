@@ -1,5 +1,5 @@
 ---
-title: Firewall
+title: فائر وال
 description: ARGVUS ۔ﮟﯾﺮﮐ ﻝﻭﺮﭩﻨﮐ ﺭﻭﺍ ﮟﯾﺮﮐ ﮧﻨﺋﺎﻌﻣ ﺎﮐ ﺱﻭﺮﺳ ﻝﺍﻭ ﺮﺋﺎﻓ
 ---
 

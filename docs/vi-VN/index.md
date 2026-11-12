@@ -1,5 +1,5 @@
 ---
-title: Firewall
+title: Tường lửa
 description: Kiểm tra và điều khiển dịch vụ tường lửa ARGVUS.
 ---
 

@@ -1,5 +1,5 @@
 ---
-title: Firewall
+title: Güvenlik Duvarı
 description: ARGVUS güvenlik duvarı hizmetini inceleyin ve kontrol edin.
 ---
 

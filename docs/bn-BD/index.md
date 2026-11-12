@@ -1,5 +1,5 @@
 ---
-title: Firewall
+title: ফায়ারওয়াল
 description: ARGVUS ফায়ারওয়াল সার্ভিস পরিদর্শন এবং নিয়ন্ত্রণ করুন।
 ---
 
