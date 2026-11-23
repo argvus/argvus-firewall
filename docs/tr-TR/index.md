@@ -3,6 +3,8 @@ title: Güvenlik Duvarı
 description: ARGVUS güvenlik duvarı hizmetini inceleyin ve kontrol edin.
 ---
 
+Güvenlik duvarı ayarları ve kuralları taslakta tutulur. Kaydet ikisini de yazar ve hizmeti yeniden başlatır. İptal taslağı atar. Yeniden başlat kayıtlı dosyaları uygular.
+
 `argvus-firewall`, güvenlik duvarı komutunu ve `argvus-firewall.service` sistem hizmetini sağlar. Yapılandırması `/etc/argvus/firewall/` altında bulunur.
 
 Komut, `on`, `off`, `status`, `config`, `rules` operasyonel eylemlerini ve yapılandırılmış `manage` arayüzünü destekler. Yönetimsel değişiklikler polkit yetkilendirmesi gerektirebilir.

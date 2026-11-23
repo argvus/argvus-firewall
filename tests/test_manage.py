@@ -75,6 +75,31 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(path.read_text(), '# saved\n')
                 self.assertEqual(path.stat().st_mode & 0o777, 0o644)
 
+    def test_combined_save_restores_both_files_if_restart_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config'
+            rules = Path(directory) / 'rules'
+            config.write_text('ALLOW_SSH="n"\n')
+            rules.write_text('# original\n')
+            request = {
+                'original': config.read_text(),
+                'original_rules': rules.read_text(),
+                'config': dict(manage.DEFAULTS, ALLOW_SSH='y'),
+                'rules': '# new\n',
+            }
+
+            def restart(*args):
+                self.assertEqual(args[1:], ('restart', 'argvus-firewall.service'))
+                self.assertEqual(manage.parse_config(config.read_text())['ALLOW_SSH'], 'y')
+                self.assertEqual(rules.read_text(), '# new\n')
+                raise ValueError('restart failed')
+
+            with patch.object(manage, 'CONFIG', config), patch.object(manage, 'RULES', rules), patch.object(manage, 'run', side_effect=restart), patch.object(manage.subprocess, 'run', side_effect=[subprocess.CompletedProcess([], 0), subprocess.CompletedProcess([], 3)]):
+                with self.assertRaisesRegex(ValueError, 'restart failed'):
+                    manage.save_and_restart(request)
+            self.assertEqual(config.read_text(), request['original'])
+            self.assertEqual(rules.read_text(), request['original_rules'])
+
     def test_invalid_json_is_reported_without_execution(self):
         output = subprocess.run(['/usr/bin/python3', '-I', str(ROOT / 'src/usr/lib/argvus-firewall/manage.py')], input='not json', text=True, capture_output=True)
         self.assertNotEqual(output.returncode, 0)

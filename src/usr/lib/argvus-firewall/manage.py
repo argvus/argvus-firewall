@@ -106,6 +106,55 @@ def run(*args):
     return result.stdout.strip()
 
 
+def validate_rules(content):
+    if not isinstance(content, str) or '\0' in content or len(content.encode()) > 262144:
+        raise ValueError('invalid rules document')
+    syntax = subprocess.run(['/usr/bin/sh', '-n'], input=content, capture_output=True,
+                            text=True, check=False)
+    if syntax.returncode:
+        raise ValueError(syntax.stderr)
+
+
+def save_and_restart(request):
+    original_config = CONFIG.read_text()
+    original_rules = RULES.read_text()
+    if request['original'] != original_config or request['original_rules'] != original_rules:
+        raise ValueError('file changed since loading; reload before saving')
+    config = render_config(original_config, request['config'])
+    rules = request['rules']
+    if rules is not None:
+        validate_rules(rules)
+    was_active = subprocess.run(
+        ["/usr/bin/systemctl", "is-active", "--quiet", "argvus-firewall.service"],
+        check=False,
+    ).returncode == 0
+    restart_attempted = False
+    written = []
+    try:
+        for path, original, content in ((CONFIG, original_config, config),
+                                        (RULES, original_rules, rules)):
+            if content is not None and content != original:
+                atomic_write(path, content)
+                written.append((path, original))
+        restart_attempted = True
+        run('/usr/bin/systemctl', 'restart', 'argvus-firewall.service')
+    except (OSError, ValueError) as error:
+        failures = []
+        for path, original in reversed(written):
+            try:
+                atomic_write(path, original)
+            except (OSError, ValueError) as rollback_error:
+                failures.append(str(rollback_error))
+        if restart_attempted and was_active and not failures:
+            try:
+                run("/usr/bin/systemctl", "start", "argvus-firewall.service")
+            except (OSError, ValueError) as recovery_error:
+                failures.append(str(recovery_error))
+        if failures:
+            raise ValueError(f'{error}; rollback failed: {", ".join(failures)}') from error
+        raise
+
+
 def handle(request):
     action = request['action']
     if action == 'snapshot':
@@ -117,7 +166,9 @@ def handle(request):
         raise PermissionError('administration requires pkexec /usr/lib/argvus/commands/firewall manage')
     with open('/run/lock/argvus-firewall-config.lock', 'a', encoding='utf-8') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if action in ('save-config', 'save-rules'):
+        if action == 'save-and-restart':
+            save_and_restart(request)
+        elif action in ('save-config', 'save-rules'):
             path = CONFIG if action == 'save-config' else RULES
             current = path.read_text()
             if request['original'] != current:
@@ -126,14 +177,10 @@ def handle(request):
                 content = render_config(current, request['config'])
             else:
                 content = request['rules']
-                if not isinstance(content, str) or '\0' in content or len(content.encode()) > 262144:
-                    raise ValueError('invalid rules document')
-                syntax = subprocess.run(['/usr/bin/sh', '-n'], input=content, capture_output=True, text=True, check=False)
-                if syntax.returncode:
-                    raise ValueError(syntax.stderr)
+                validate_rules(content)
             atomic_write(path, content)
         elif action in ('start', 'stop', 'restart', 'enable', 'disable'):
-            run('/usr/bin/systemctl', 'reload-or-restart' if action == 'restart' else action, 'argvus-firewall.service')
+            run('/usr/bin/systemctl', action, 'argvus-firewall.service')
         else:
             raise ValueError('unsupported operation')
     return {'ok': True}

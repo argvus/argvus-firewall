@@ -3,6 +3,8 @@ title: Firewall
 description: Periksa dan kendalikan layanan firewall ARGVUS.
 ---
 
+Setelan dan aturan firewall disimpan sebagai draf. Simpan menulis keduanya dan memulai ulang layanan. Batal membuang draf. Mulai ulang menerapkan berkas yang tersimpan.
+
 `argvus-firewall` menyediakan perintah firewall dan layanan sistem `argvus-firewall.service`. Konfigurasinya berada di bawah `/etc/argvus/firewall/`.
 
 Perintah ini mendukung tindakan operasional `on`, `off`, `status`, `config`, `rules` dan antarmuka terstruktur `manage`. Perubahan administratif mungkin memerlukan otorisasi polkit.

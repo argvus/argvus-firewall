@@ -3,6 +3,8 @@ title: Tường lửa
 description: Kiểm tra và điều khiển dịch vụ tường lửa ARGVUS.
 ---
 
+Các thay đổi cấu hình và quy tắc tường lửa nằm trong bản nháp. Lưu ghi cả hai và khởi động lại dịch vụ. Hủy bỏ bản nháp. Khởi động lại áp dụng các tệp đã lưu.
+
 `argvus-firewall` cung cấp lệnh tường lửa và dịch vụ hệ thống `argvus-firewall.service`. Cấu hình của nó nằm dưới `/etc/argvus/firewall/`.
 
 Lệnh này hỗ trợ các hành động vận hành `on`, `off`, `status`, `config`, `rules` và giao diện có cấu trúc `manage`. Các thay đổi hành chính có thể yêu cầu ủy quyền polkit.
